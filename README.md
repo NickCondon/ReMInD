@@ -1,7 +1,7 @@
 # ReMInD
 # 🧬 IMB Experiment Metadata Capture Tool
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Author**: Dr Nicholas Condon (n.condon@uq.edu.au)  
 **Affiliation**: Institute for Molecular Bioscience (IMB) Microscopy Facility, The University of Queensland  
 **Date**: May 2025
