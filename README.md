@@ -26,13 +26,14 @@ The tool is especially useful for users of light microscopy and other imaging sy
 
 ---
 
-## 🖥️ Requirements
+## 🖥️ Requirements*
 
 - **Python** 3.7+
 - **Tkinter** (included with most Python installations)
+* Only needed for editing and testing the python code
 
-You can install dependencies using:
 
 ## 📦 Packaged Executable
 - The Remind.exe file can be downloaded and is fully self contained for Windows 11
+- If using the custom icon file (provided) you will need to create a shortcut to the Remind.exe to use custom icons in Windows 11
 
