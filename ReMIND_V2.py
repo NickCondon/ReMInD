@@ -1,4 +1,4 @@
-# Version 1.0
+# Version 2.0
 # Made by Nicholas Condon (n.condon@uq.edu.au) from IMB Microscopy @ The University of Queensland
 # May 2025
 
