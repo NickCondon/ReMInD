@@ -1,5 +1,5 @@
 # ReMInD
-# 🧬 IMB Experiment Metadata Capture Tool
+# 🧬 Recommended Metadata Interface for Documentation
 
 **Version**: 2.0  
 **Author**: Dr Nicholas Condon (n.condon@uq.edu.au)  
