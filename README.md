@@ -1,7 +1,7 @@
 # ReMInD
 # 🧬 Recommended Metadata Interface for Documentation
 
-**Version**: 2.0  
+**Version**: 2.xx  
 **Author**: Dr Nicholas Condon (n.condon@uq.edu.au)  
 **Affiliation**: Institute for Molecular Bioscience (IMB) Microscopy Facility, The University of Queensland  
 **Date**: May 2025
@@ -31,6 +31,20 @@ The tool is especially useful for users of light microscopy and other imaging sy
 - **Python** 3.7+
 - **Tkinter** (included with most Python installations)
 * Only needed for editing and testing the python code
+
+## ⌨️ Creating the executable
+
+1.  Install PyInstaller 
+   ```
+pip install pyinstaller
+```
+3.  Place the python file into its own directory with no spaces
+4.  In Command Prompt navigate to this directory with the script
+5.  Run the following command replacing <scriptname> with your own.
+```
+pyinstaller --onefile --windowed <scriptname>.py
+```
+6.  Your single executable will be within the dist directory that was created.
 
 
 ## 📦 Packaged Executable
