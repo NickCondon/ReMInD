@@ -2,6 +2,11 @@
 Extract and summarize Zeiss CZI metadata using pylibCZIrw.
 Outputs key image, instrument, and channel metadata in a structured, human-readable format.
 Requires pylibCZIrw to read the metadata and tkinter for GUI file selection.
+
+Version: 0.1.0
+Author: Dr James Springfield (j.springfield@imb.uq.edu.au)
+Affiliation: Institute for Molecular Bioscience (IMB) Microscopy Facility, The University of Queensland
+Date: May 2025
 """
 
 import os
