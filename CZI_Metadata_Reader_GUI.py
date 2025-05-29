@@ -1,7 +1,7 @@
 """
 Extract and summarize Zeiss CZI metadata using pylibCZIrw.
 Outputs key image, instrument, and channel metadata in a structured, human-readable format.
-All numeric values are converted to standard units and rounded to 3 decimal places where appropriate.
+Requires pylibCZIrw to read the metadata and tkinter for GUI file selection.
 """
 
 import os
@@ -9,44 +9,87 @@ import json
 import tkinter as tk
 from tkinter import filedialog
 from pylibCZIrw import czi as pyczi
-import xml.etree.ElementTree as ET
 import sys
 import subprocess
+
+# --- Helper functions ---
+def install_pylibczirw():
+    """Install pylibCZIrw if not already installed."""
+    try:
+        import pylibCZIrw
+    except ImportError:
+        print("pylibCZIrw not found. Installing...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pylibCZIrw"])
+        print("pylibCZIrw installed successfully.")
+
+def convert_time_interval(value, unit="ms"):
+    """
+    Convert a time interval value and unit to seconds.
+    Returns the interval in seconds (rounded to 6 decimals) or "N/A" if invalid.
+    """
+    try:
+        if value is not None and value != "" and value != "N/A":
+            value = float(value)
+            if unit == "ms":
+                result = value / 1000.0
+            elif unit == "s":
+                result = value
+            elif unit == "min":
+                result = value * 60.0
+            elif unit == "h":
+                result = value * 3600.0
+            else:
+                result = value
+            return round(result, 6)
+    except Exception:
+        pass
+    return "N/A"
+
+def safe_get(d, *keys, default="N/A"):
+    """Safely get nested dictionary keys."""
+    for k in keys:
+        if isinstance(d, dict) and k in d:
+            d = d[k]
+        else:
+            return default
+    return d
+
+def ensure_list(val):
+    """Ensure the value is a list."""
+    if isinstance(val, list):
+        return val
+    elif isinstance(val, dict):
+        return [val]
+    else:
+        return []
 
 def safe_round(val):
     """Round a value to 3 decimals if possible, else return as is."""
     try:
-        fval = float(val)
-        return round(fval, 3)
+        return round(float(val), 3)
     except Exception:
         return val
 
-def round_list(lst):
-    """Round all numeric values in a list to 3 decimals, leave others unchanged."""
-    return [
-        round(float(x), 3) if isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).replace('-', '', 1).isdigit())
-        else x
-        for x in lst
-    ]
-
-def to_microns(val):
-    """Convert a value in meters to microns, rounded to 3 decimals."""
+def to_microns_or_na(val):
+    """Convert a value in meters to microns, rounded to 3 decimals, or 'N/A' if invalid/zero."""
     try:
-        return round(float(val) * 1e6, 3)
+        if val is not None and val != "N/A" and float(val) != 0:
+            return round(float(val) * 1e6, 3)
     except Exception:
-        return val
+        pass
+    return "N/A"
 
-def to_int(val):
-    """Convert a value to int if possible, else return as is."""
+def safe_image_size(size, pixel_size):
+    """Calculate image size in microns."""
     try:
-        return int(float(val))
+        return round(float(size) * float(pixel_size), 3)
     except Exception:
-        return val
+        return "N/A"
 
 def select_czi_file():
     """Open a file dialog to select a CZI file and return its path. Plays a sound when opened."""
     root = tk.Tk()
-    root.attributes('-topmost', True)  # Make the dialog topmost
+    root.attributes('-topmost', True)
     root.focus_force()
     root.withdraw()
     # Play a system beep when the file dialog opens
@@ -70,25 +113,7 @@ def select_czi_file():
 def extract_metadata(demo_czi_read):
     """Extract and return filtered and full metadata from a CZI file."""
     with pyczi.open_czi(demo_czi_read) as czi_doc:
-        root = ET.fromstring(czi_doc.raw_metadata)
         metadata_dict = czi_doc.metadata
-
-        # --- Helper functions ---
-        def safe_get(d, *keys, default="N/A"):
-            for k in keys:
-                if isinstance(d, dict) and k in d:
-                    d = d[k]
-                else:
-                    return default
-            return d
-
-        def ensure_list(val):
-            if isinstance(val, list):
-                return val
-            elif isinstance(val, dict):
-                return [val]
-            else:
-                return []
 
         # --- Metadata navigation ---
         meta = safe_get(metadata_dict, "ImageDocument", "Metadata", default={})
@@ -100,9 +125,7 @@ def extract_metadata(demo_czi_read):
         objectives_meta = safe_get(instrument_meta, "Objectives", default={})
         application_meta = safe_get(info_meta, "Application", default={})
         experiment_meta = safe_get(meta, "Experiment", default={})
-        acquisition_blocks = ensure_list(
-            safe_get(experiment_meta, "ExperimentBlocks", "AcquisitionBlock", default=[])
-        )
+        acquisition_blocks = ensure_list(safe_get(experiment_meta, "ExperimentBlocks", "AcquisitionBlock", default=[]))
         acquisition_meta = acquisition_blocks[0] if acquisition_blocks else {}
         track_meta = safe_get(acquisition_meta, "MultiTrackSetup", default={})
 
@@ -118,69 +141,47 @@ def extract_metadata(demo_czi_read):
         # --- System info ---
         microscope = safe_get(microscope_meta, "Microscope", default={})
         system_name = microscope.get("System", "")
-
-        device = config_meta.get("Device", {})
-        widefield_name = ""
-        if isinstance(device, list):
-            widefield_name = next((d.get("@Name", "") for d in device if d.get("@Id") == "Microscope" and "@Name" in d), "")
-            if not widefield_name:
-                widefield_name = next((d.get("@Name", "") for d in device if "@Name" in d), "")
-        elif isinstance(device, dict):
-            widefield_name = device.get("@Name", "")
         if not system_name:
-            system_name = widefield_name
+            device = config_meta.get("Device", {})
+            if isinstance(device, list):
+                system_name = next((d.get("@Name", "") for d in device if d.get("@Id") == "Microscope" and "@Name" in d), "")
+                if not system_name:
+                    system_name = next((d.get("@Name", "") for d in device if "@Name" in d), "")
+            elif isinstance(device, dict):
+                system_name = device.get("@Name", "")
 
         # --- Image info ---
         pixel_type = image_meta.get("PixelType", "N/A")
-        size_x = to_int(image_meta.get("SizeX", "N/A"))
-        size_y = to_int(image_meta.get("SizeY", "N/A"))
-        size_z = to_int(image_meta.get("SizeZ", "N/A"))
-        size_t = to_int(image_meta.get("SizeT", "N/A"))
-        size_s = to_int(image_meta.get("SizeS", "N/A"))
-        size_m = to_int(image_meta.get("SizeM", "N/A"))
+        size_x = image_meta.get("SizeX", "N/A")
+        size_y = image_meta.get("SizeY", "N/A")
+        size_z = image_meta.get("SizeZ", "N/A")
+        size_t = image_meta.get("SizeT", "N/A")
+        size_s = image_meta.get("SizeS", "N/A")
+        size_m = image_meta.get("SizeM", "N/A")
 
         # --- Channel info ---
         dim_info = safe_get(metadata_dict, "ImageDocument", "Metadata", "Information", "Image", "Dimensions", default={})
         tracks = ensure_list(dim_info.get("Tracks", {}).get("Track", []))
-        channel_ids = set()
-        for track in tracks:
-            channel_refs = ensure_list(track.get("ChannelRefs", {}).get("ChannelRef", []))
-            for cref in channel_refs:
-                if "@Id" in cref:
-                    channel_ids.add(cref["@Id"])
-        size_c = to_int(len(channel_ids))
+        channel_ids = {cref["@Id"] for track in tracks for cref in ensure_list(track.get("ChannelRefs", {}).get("ChannelRef", [])) if "@Id" in cref}
+        size_c = len(channel_ids)
 
         # --- Pixel sizes (microns) ---
         acq_mode_setup = safe_get(acquisition_meta, "AcquisitionModeSetup", default={})
-        pixel_Size_X = to_microns(acq_mode_setup.get("ScalingX", "N/A"))
-        pixel_Size_Y = to_microns(acq_mode_setup.get("ScalingY", "N/A"))
-        pixel_Size_Z = to_microns(acq_mode_setup.get("ScalingZ", "N/A"))
-
-        # Fallback for pixel sizes
+        pixel_Size_X = to_microns_or_na(acq_mode_setup.get("ScalingX", "N/A"))
+        pixel_Size_Y = to_microns_or_na(acq_mode_setup.get("ScalingY", "N/A"))
+        pixel_Size_Z = to_microns_or_na(acq_mode_setup.get("ScalingZ", "N/A"))
+        # Fallback: if any pixel size is "N/A", try to get from scaling items' distances (already in microns)
         scaling_items = safe_get(metadata_dict, "ImageDocument", "Metadata", "Scaling", "Items", default={})
         distances = ensure_list(scaling_items.get("Distance", []))
         distance_map = {d.get("@Id"): d.get("Value") for d in distances if "@Id" in d and "Value" in d}
+        if pixel_Size_X == "N/A":
+            pixel_Size_X = to_microns_or_na(distance_map.get("X", "N/A"))
+        if pixel_Size_Y == "N/A":
+            pixel_Size_Y = to_microns_or_na(distance_map.get("Y", "N/A"))
+        if pixel_Size_Z == "N/A":
+            pixel_Size_Z = to_microns_or_na(distance_map.get("Z", "N/A"))
 
-        def fallback_pixel_size(val, axis):
-            if not val or val == "N/A" or val == 0:
-                v = distance_map.get(axis)
-                try:
-                    return round(float(v) * 1e6, 3)
-                except Exception:
-                    return val
-            return val
-
-        pixel_Size_X = fallback_pixel_size(pixel_Size_X, "X")
-        pixel_Size_Y = fallback_pixel_size(pixel_Size_Y, "Y")
-        pixel_Size_Z = fallback_pixel_size(pixel_Size_Z, "Z")
-
-        # --- Image size in microns ---
-        def safe_image_size(size, pixel_size):
-            try:
-                return round(float(size) * float(pixel_size), 3)
-            except Exception:
-                return "N/A"
-
+        # --- Image sizes (microns) ---
         image_size_x = safe_image_size(size_x, pixel_Size_X)
         image_size_y = safe_image_size(size_y, pixel_Size_Y)
         image_size_z = safe_image_size(size_z, pixel_Size_Z)
@@ -197,17 +198,6 @@ def extract_metadata(demo_czi_read):
         channels_info = ensure_list(
             safe_get(metadata_dict, "ImageDocument", "Metadata", "Information", "Image", "Dimensions", "Channels", "Channel", default=[])
         )
-
-        # Per-channel MM.TotalMagnification
-        total_magnifications = []
-        for ch in channels_info:
-            mm_total_mag = safe_get(ch, "CustomAttributes", "MM.TotalMagnification")
-            try:
-                mm_total_mag = round(float(mm_total_mag), 3)
-            except Exception:
-                pass
-            total_magnifications.append(mm_total_mag)
-
         channel_names = [ch.get("@Name", "N/A") for ch in channels_info]
         illumination_Types = [ch.get("IlluminationType", "N/A") for ch in channels_info]
         contrast_Methods = [ch.get("ContrastMethod", "N/A") for ch in channels_info]
@@ -216,21 +206,13 @@ def extract_metadata(demo_czi_read):
         emission_wavelengths = [safe_round(ch.get("EmissionWavelength", "N/A")) for ch in channels_info]
         acquisition_modes = [ch.get("AcquisitionMode", "N/A") for ch in channels_info]
         dye_names = [ch.get("Fluor", "N/A") for ch in channels_info]
-        zoom_list = []
-        for ch in channels_info:
-            zoom_x = safe_get(ch, "LaserScanInfo", "ZoomX")
-            try:
-                zoom_x = round(float(zoom_x), 3)
-            except Exception:
-                pass
-            zoom_list.append(zoom_x)
+        zoom_list = [safe_round(safe_get(ch, "LaserScanInfo", "ZoomX")) for ch in channels_info]
+        total_magnifications = [safe_round(safe_get(ch, "CustomAttributes", "MM.TotalMagnification")) for ch in channels_info]
 
         # --- Per-detector wavelength ranges ---
-        tracks = ensure_list(track_meta.get("TrackSetup", []))
         all_detector_wavelength_ranges = []
-        for track in tracks:
-            detectors = ensure_list(track.get("Detectors", {}).get("Detector", []))
-            for detector in detectors:
+        for track in ensure_list(track_meta.get("TrackSetup", [])):
+            for detector in ensure_list(track.get("Detectors", {}).get("Detector", [])):
                 wl_range = detector.get("DetectorWavelengthRanges", {}).get("DetectorWavelengthRange", {})
                 if isinstance(wl_range, dict):
                     wl_start = wl_range.get("WavelengthStart", "N/A")
@@ -245,34 +227,45 @@ def extract_metadata(demo_czi_read):
                     detector_wavelength_range = "N/A"
                 all_detector_wavelength_ranges.append(detector_wavelength_range)
 
-        # --- Per-channel Airyscan Virtual Pinhole Size ---
-        airy_scan_virtual_pinhole_sizes = []
-        for channel_name in channel_names:
-            value = "N/A"
-            for track in tracks:
-                detectors = ensure_list(track.get("Detectors", {}).get("Detector", []))
-                for detector in detectors:
-                    if detector.get("@Name") == "Airyscan":
-                        det_channel = detector.get("ImageChannelName", "")
-                        if det_channel == channel_name or det_channel in channel_name or channel_name in det_channel:
-                            airy_val = detector.get("AiryScanVirtualPinholeSize", None)
-                            if airy_val is not None:
-                                try:
-                                    value = round(float(airy_val) * 1e6, 3)
-                                except Exception:
-                                    value = airy_val
+        # --- Update Emission Wavelength Range for any channel containing 'ChA', ie: Airyscan detector ---
+        for i, channel_name in enumerate(channel_names):
+            if "ChA" in channel_name:
+                filterset_value = None
+                for track in ensure_list(track_meta.get("TrackSetup", [])):
+                    for detector in ensure_list(track.get("Detectors", {}).get("Detector", [])):
+                        if "ChA" in detector.get("ImageChannelName", ""):
+                            filtersets = detector.get("Filtersets", {})
+                            filterset_value = filtersets.get("Filterset", None)
                             break
-                if value != "N/A":
-                    break
-            airy_scan_virtual_pinhole_sizes.append(value)
+                    if filterset_value:
+                        break
+                if filterset_value:
+                    all_detector_wavelength_ranges[i] = filterset_value
+
+        # --- Time Interval (s) ---
+        # Try to get value and unit from the primary location
+        ts = safe_get(acquisition_meta, "SubDimensionSetups", "TimeSeriesSetup", "Interval", "TimeSpan", default={})
+        value = ts.get("Value", None)
+        unit = ts.get("DefaultUnitFormat", "ms")
+        time_interval = convert_time_interval(value, unit)
+        # Fallback: Try secondary location if still N/A
+        if time_interval == "N/A":
+            ts = safe_get(
+                metadata_dict,
+                "ImageDocument", "Metadata", "Experiment", "ExperimentBlocks", "AcquisitionBlock",
+                "TimeSeriesSetup", "Switches", "Switch", "SwitchAction", "SetIntervalAction", "Interval", "TimeSpan",
+                default={}
+            )
+            value = ts.get("Value", None)
+            unit = ts.get("DefaultUnitFormat", "ms")
+            time_interval = convert_time_interval(value, unit)
 
         # --- Per-channel Pinhole Diameter (um) ---
         all_pinhole_diameters = []
         for channel_name in channel_names:
             pinhole_diameter_um = "N/A"
-            for track in tracks:
-                detectors = ensure_list(track.get("Detectors", {}).get("Detector", []))
-                for detector in detectors:
+            for track in ensure_list(track_meta.get("TrackSetup", [])):
+                for detector in ensure_list(track.get("Detectors", {}).get("Detector", [])):
                     det_channel = detector.get("ImageChannelName", "")
                     if det_channel == channel_name or det_channel in channel_name or channel_name in det_channel:
                         pinhole_diameter = detector.get("PinholeDiameter", None)
@@ -288,16 +281,25 @@ def extract_metadata(demo_czi_read):
                     break
             all_pinhole_diameters.append(pinhole_diameter_um)
 
-        # --- Time Interval (s) ---
-        time_interval = "N/A"
-        try:
-            time_interval = (
-                safe_get(acquisition_meta, "SubDimensionSetups", "TimeSeriesSetup", "Interval", "TimeSpan", "Value")
-            )
-            if time_interval != "N/A":
-                time_interval = float(time_interval)
-        except Exception:
-            pass
+        # --- Per-channel Airyscan Virtual Pinhole Size (um) ---
+        airy_scan_virtual_pinhole_sizes = []
+        for channel_name in channel_names:
+            value = "N/A"
+            for track in ensure_list(track_meta.get("TrackSetup", [])):
+                for detector in ensure_list(track.get("Detectors", {}).get("Detector", [])):
+                    if detector.get("@Name") == "Airyscan":
+                        det_channel = detector.get("ImageChannelName", "")
+                        if det_channel == channel_name or det_channel in channel_name or channel_name in det_channel:
+                            airy_val = detector.get("AiryScanVirtualPinholeSize", None)
+                            if airy_val is not None:
+                                try:
+                                    value = round(float(airy_val) * 1e6, 3)
+                                except Exception:
+                                    value = airy_val
+                            break
+                if value != "N/A":
+                    break
+            airy_scan_virtual_pinhole_sizes.append(value)
 
         # --- Assemble metadata output ---
         metadata_output = {
@@ -339,65 +341,18 @@ def extract_metadata(demo_czi_read):
             "Pinhole Diameters (um)": all_pinhole_diameters,
             "AiryScan Virtual Pinhole Size (um)": airy_scan_virtual_pinhole_sizes,
             "Zoom": zoom_list,
-            "MM.TotalMagnification (per channel)": total_magnifications,
+            "TotalMagnification": total_magnifications,
         }
-
-        # --- Update Emission Wavelength Range for any channel containing 'ChA' ---
-        for i, channel_name in enumerate(metadata_output["Channel Names"]):
-            if "ChA" in channel_name:
-                filterset_value = None
-                for track in tracks:
-                    detectors = ensure_list(track.get("Detectors", {}).get("Detector", []))
-                    for detector in detectors:
-                        if "ChA" in detector.get("ImageChannelName", ""):
-                            filtersets = detector.get("Filtersets", {})
-                            filterset_value = filtersets.get("Filterset", None)
-                            break
-                    if filterset_value:
-                        break
-                if filterset_value:
-                    metadata_output["Emission Wavelength Range (nm)"][i] = filterset_value
 
         return metadata_output, metadata_dict
 
-def get_system_name(info_meta, meta, microscope_meta):
-    # 1. Try standard location
-    microscope = microscope_meta.get("Microscope", {})
-    system_name = microscope.get("System", "")
-
-    # 2. Try Configuration > Device
-    if not system_name:
-        config = info_meta.get("Configuration", {}) or meta.get("Configuration", {})
-        devices = config.get("Device", [])
-        if isinstance(devices, dict):
-            devices = [devices]
-        # Try to find a device with @Name
-        for dev in devices:
-            if "@Name" in dev:
-                system_name = dev["@Name"]
-                break
-
-    # 3. Try HardwareSetting > ParameterCollection for @Id == "Microscope" or @Name
-    if not system_name:
-        hardware_setting = meta.get("HardwareSetting", {})
-        param_col = hardware_setting.get("ParameterCollection", [])
-        if isinstance(param_col, dict):
-            param_col = [param_col]
-        for param in param_col:
-            if param.get("@Id") == "Microscope" and "@Name" in param:
-                system_name = param["@Name"]
-                break
-            if "@Name" in param:
-                system_name = param["@Name"]
-                break
-
-    # 4. Fallback
-    if not system_name:
-        system_name = "N/A"
-
-    return system_name
 
 def main():
+    """Main function to run the CZI metadata reader GUI."""
+    # Install pylibCZIrw if not already installed
+    if "pylibCZIrw" not in sys.modules: 
+        install_pylibczirw()
+
     # Select file
     demo_czi_read = select_czi_file()
     if not demo_czi_read:
@@ -440,12 +395,13 @@ def main():
     xscroll.pack(side="bottom", fill="x")
     text.configure(xscrollcommand=xscroll.set)
 
-    # Insert metadata
-    for key, value in metadata_output.items():
-        text.insert("end", f"{key}: {value}\n")
+    # Insert metadata text
+    metadata_text = json.dumps(metadata_output, indent=2)
+    text.insert("1.0", metadata_text)
 
-    text.config(state="disabled")
-    display_root.mainloop()
+    # Make the window modal
+    display_root.grab_set()
+    tk.mainloop()
 
 if __name__ == "__main__":
     main()
