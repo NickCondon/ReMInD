@@ -8,6 +8,73 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import datetime
 import os
+import scyjava
+import jpype
+from tkinter import filedialog, messagebox
+import json
+
+
+# Add Bio-Formats JARs (downloads from SciJava Maven repo)
+scyjava.config.add_repositories({'scijava.public': 'https://maven.scijava.org/content/groups/public'})
+scyjava.config.add_endpoints([
+    'ome:formats-gpl:7.3.0',  # Adjust version as needed
+])
+
+
+def get_bioformats_metadata(image_path):
+    if not jpype.isJVMStarted():
+        scyjava.start_jvm()
+    ImageReader = scyjava.jimport('loci.formats.ImageReader')
+    OMEXMLService = scyjava.jimport('loci.common.services.ServiceFactory').getInstance().getInstance(
+        scyjava.jimport('loci.formats.services.OMEXMLService'))
+    reader = ImageReader()
+    omeMeta = OMEXMLService.createOMEXMLMetadata()
+    reader.setMetadataStore(omeMeta)
+    reader.setId(image_path)
+
+    def safe_get(callable_, *args):
+        try:
+            return callable_(*args)
+        except Exception:
+            return ""
+
+    def flatten_and_str(val):
+        # Recursively flattens any nested lists/tuples and converts everything to string
+        def _flatten(v):
+            if isinstance(v, (list, tuple)):
+                for item in v:
+                    yield from _flatten(item)
+            elif v is None:
+                return
+            else:
+                yield str(v)
+        return ", ".join(list(_flatten(val)))
+
+    size_c = safe_get(reader.getSizeC) or 0
+
+    metadata = {
+        "Microscope name": flatten_and_str(safe_get(omeMeta.getInstrumentID, 0)) if safe_get(omeMeta.getInstrumentCount) > 0 else "",
+        "Image format": flatten_and_str(safe_get(reader.getFormat)),
+        "Channel info": f"{size_c} channel(s)",
+        "Date and time": flatten_and_str(safe_get(omeMeta.getImageAcquisitionDate, 0)) if safe_get(omeMeta.getImageCount) > 0 else "",
+        "Pixel count X": flatten_and_str(safe_get(reader.getSizeX)),
+        "Pixel count Y": flatten_and_str(safe_get(reader.getSizeY)),
+        "Pixel count Z": flatten_and_str(safe_get(reader.getSizeZ)),
+        "Time series": flatten_and_str(safe_get(reader.getSizeT)),
+        "Pixel size X (um)": flatten_and_str(safe_get(lambda: omeMeta.getPixelsPhysicalSizeX(0).value())) if safe_get(omeMeta.getPixelsPhysicalSizeX, 0) else "",
+        "Pixel size Y (um)": flatten_and_str(safe_get(lambda: omeMeta.getPixelsPhysicalSizeY(0).value())) if safe_get(omeMeta.getPixelsPhysicalSizeY, 0) else "",
+        "Pixel size Z (um)": flatten_and_str(safe_get(lambda: omeMeta.getPixelsPhysicalSizeZ(0).value())) if safe_get(omeMeta.getPixelsPhysicalSizeZ, 0) else "",
+        "Objective": flatten_and_str(safe_get(omeMeta.getObjectiveID, 0, 0)) if safe_get(omeMeta.getObjectiveCount, 0) > 0 else "",
+        "Objective Magnification": flatten_and_str(safe_get(omeMeta.getObjectiveNominalMagnification, 0, 0)) if safe_get(omeMeta.getObjectiveCount, 0) > 0 else "",
+        "Objective NA": flatten_and_str(safe_get(omeMeta.getObjectiveLensNA, 0, 0)) if safe_get(omeMeta.getObjectiveCount, 0) > 0 else "",
+        "Instrument Manufacturer": flatten_and_str(safe_get(omeMeta.getInstrumentManufacturer, 0)) if safe_get(omeMeta.getInstrumentCount) > 0 else "",
+        "Instrument Model": flatten_and_str(safe_get(omeMeta.getInstrumentModel, 0)) if safe_get(omeMeta.getInstrumentCount) > 0 else "",
+        "Channel Names": ", ".join([flatten_and_str(safe_get(omeMeta.getChannelName, 0, c)) for c in range(size_c)]),
+        "Channel Excitation Wavelengths": ", ".join([flatten_and_str(safe_get(omeMeta.getChannelExcitationWavelength, 0, c)) for c in range(size_c)]),
+        "Channel Emission Wavelengths": ", ".join([flatten_and_str(safe_get(omeMeta.getChannelEmissionWavelength, 0, c)) for c in range(size_c)]),
+    }
+    reader.close()
+    return metadata
 
 
 class ToolTip:
@@ -43,6 +110,9 @@ class REMBIGUI:
         self.root = root
         self.root.title("ReMInD - Recommended Metadata Interface for Documentation")
 
+        self.root.columnconfigure(0, weight=0)
+        self.root.columnconfigure(1, weight=1)
+
         self.entries = {}
         self.extra_fields = {}
         self.text_fields = {}
@@ -58,7 +128,7 @@ class REMBIGUI:
             ("Fixation / Live Media", "", "Fixation method used, or details of live imaging reagents"),
             ("Sample mounting condition", "", "35mm Dish, #1.5 coverslip, chamber slide"),
             ("Microscope name", "", "e.g. Confocal 5"),
-            ("Objective", "", "Objective lens details. e.g. Plan Apochromat 63x 1.4NA"),
+            ("Objective", ["1x", "4x", "5x", "10x", "20x", "25x", "40x", "60x", "63x", "100x", "Other"], "Objective lens details. e.g. Plan Apochromat 63x 1.4NA"),
             ("Immersion", ["Air", "Water", "Immersol W", "Glycerol", "Silicone", "Oil-23", "Oil-37", "Other"], "Select the immersion used."),
             ("Imaging mode", ["Confocal", "Widefield", "Spinning Disc Confocal", "Lightsheet", "Other"], "Select the imaging mode used."),
             ("Specialist modality", ["", "Airyscan", "STED", "FLIM", "2Photon", "TIRF", "Other"], "Select any specialist imaging modality used."),
@@ -133,6 +203,7 @@ class REMBIGUI:
         tk.Button(button_frame, text="Load ReadMe.txt", command=self.load_existing).pack(side="left", padx=5)
         tk.Button(button_frame, text="Help", command=self.show_help).pack(side="left", padx=5)
         tk.Button(button_frame, text="Exit", command=self.root.quit).pack(side="left", padx=5)
+        tk.Button(button_frame, text="Autofill from Bio-Formats", command=self.autofill_from_bioformats).pack(side="left", padx=5)
 
     def generate_readme(self):
         save_path = filedialog.asksaveasfilename(defaultextension=".txt",
@@ -288,6 +359,28 @@ class REMBIGUI:
         help_text.tag_configure("title", font=("Segoe UI", 12, "bold"))
         help_text.tag_configure("subtitle", font=("Segoe UI", 10, "bold"))
         help_text.config(state="disabled")
+
+    # Add this method to your REMBIGUI class:
+    def autofill_from_bioformats(self):
+        file_path = filedialog.askopenfilename(title="Select image file")
+        if not file_path:
+            return
+        try:
+            metadata = get_bioformats_metadata(file_path)
+            # DEBUG: Output metadata to a file for inspection
+            with open("bioformats_metadata_debug.json", "w", encoding="utf-8") as debug_file:
+                json.dump(metadata, debug_file, indent=2, ensure_ascii=False)
+            for field, value in metadata.items():
+                entry = self.entries.get(field)
+                if entry:
+                    if isinstance(entry, tk.StringVar):
+                        entry.set(str(value))
+                    elif isinstance(entry, tk.Entry):
+                        entry.delete(0, tk.END)
+                        entry.insert(0, str(value))
+            messagebox.showinfo("Success", "Metadata imported from Bio-Formats.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Bio-Formats import failed:\n{e}")
 
 
 if __name__ == "__main__":
