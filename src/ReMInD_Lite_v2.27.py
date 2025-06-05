@@ -5,10 +5,23 @@ import datetime
 import os
 import glob
 import tkinter.ttk as ttk
-from CZI_MetadataGUI import extract_metadata
-from LIF_MetadataGUI import extract_lif_metadata
-from Nd2_v2a import extract_nd2_metadata, map_nd2_to_remind_fields
+import sys
 import json
+
+# Add current directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+# Updated imports to look in metadata_extractors subfolder
+try:
+    from metadata_extractors.CZI_MetadataGUI import extract_metadata
+    from metadata_extractors.LIF_MetadataGUI import extract_lif_metadata
+    from metadata_extractors.Nd2_v2a import extract_nd2_metadata, map_nd2_to_remind_fields
+except ImportError as e:
+    print(f"Import error: {e}")
+    print("Make sure the metadata_extractors folder contains the required files")
+    sys.exit(1)
 
 APP_VERSION = "ReMInD Lite v2.27"
 APP_AUTHOR = "Nicholas Condon, IMB Microscopy, The University of Queensland, Brisbane Australia"
