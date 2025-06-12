@@ -63,12 +63,12 @@ The tool is especially useful for users of light microscopy and other imaging sy
 
 ## 📁 Versions Available
 
-### ReMInD Full (Remind_v2.26.py)
+### ReMInD Full (Remind_v2.27.py)
 - Complete feature set including RDM connectivity
 - UQ InstGateway integration for institutional users
 - Recommended for University of Queensland researchers
 
-### ReMInD Lite (Remind_Lite_V2.26.py)  
+### ReMInD Lite (Remind_Lite_V2.27.py)  
 - Streamlined version without RDM connectivity
 - All metadata extraction features included
 - Suitable for general use and other institutions
