@@ -41,7 +41,7 @@ The tool is especially useful for users of light microscopy and other imaging sy
 - **Scalable fonts** (A+/A- buttons)
 - **Two-row button layout** for narrow screens
 
-### RDM Integration (Full Version)
+### UQ RDM Integration (Full Version)
 - **UQ InstGateway connectivity** - automatic detection of available RDM projects
 - **Visual indicators** for network connectivity status
 - **Manual entry fallback** when not connected to institutional systems
