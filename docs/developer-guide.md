@@ -21,8 +21,8 @@ remind/
 
 ### Installation
 ```bash
-git clone https://github.com/yourusername/remind-lite-gui.git
-cd remind-lite-gui
+git clone https://github.com/NickCondon/Remind.git
+cd remind
 pip install -r requirements.txt
 ```
 
